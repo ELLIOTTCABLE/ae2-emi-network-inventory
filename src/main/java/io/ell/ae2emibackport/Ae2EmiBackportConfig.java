@@ -9,6 +9,7 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 public final class Ae2EmiBackportConfig {
    public static final ModConfigSpec SPEC;
    private static final ModConfigSpec.BooleanValue EXPOSE_NETWORK_INVENTORY_TO_EMI;
+   private static final ModConfigSpec.BooleanValue DEBUG_LOGGING;
 
    static {
       var builder = new ModConfigSpec.Builder();
@@ -19,6 +20,11 @@ public final class Ae2EmiBackportConfig {
                   "May cause performance problems on very large networks; turn off to fall",
                   "back to player-inventory-only (vanilla EMI behaviour).")
             .define("provideNetworkInventoryToEmi", true);
+      DEBUG_LOGGING = builder
+            .comment(
+                  "Log a one-line summary (once per terminal session) of how many network",
+                  "stacks were exposed to EMI. For diagnosing the feature; off for normal play.")
+            .define("debugLogging", false);
       SPEC = builder.build();
    }
 
@@ -27,5 +33,9 @@ public final class Ae2EmiBackportConfig {
 
    public static boolean exposeNetworkInventoryToEmi() {
       return EXPOSE_NETWORK_INVENTORY_TO_EMI.getAsBoolean();
+   }
+
+   public static boolean debugLogging() {
+      return DEBUG_LOGGING.getAsBoolean();
    }
 }

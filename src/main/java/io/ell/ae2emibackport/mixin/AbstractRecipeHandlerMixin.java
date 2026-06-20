@@ -73,7 +73,7 @@ public abstract class AbstractRecipeHandlerMixin<T extends AEBaseMenu> implement
          var repo = meMenu.getClientRepo();
          if (repo != null) {
             var entries = repo.getAllEntries();
-            boolean logOnce = !Ae2EmiBackport.DEBUG_DUMPED && !entries.isEmpty();
+            boolean logOnce = Ae2EmiBackportConfig.debugLogging() && !Ae2EmiBackport.DEBUG_DUMPED && !entries.isEmpty();
             int skippedZero = 0;
             int unconvertible = 0;
             int networkAdded = 0;
