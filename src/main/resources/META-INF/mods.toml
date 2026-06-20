@@ -1,0 +1,48 @@
+# Loading metadata. Placeholder values are filled from gradle.properties at build time
+# by the ProcessResources task in build.gradle.
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+license="${mod_license}"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="${mod_name}"
+authors="${mod_authors}"
+description='''${mod_description}'''
+# Client-only mod (EMI integration is client-side): never flag a server/client version mismatch.
+displayTest="IGNORE_ALL_VERSION"
+
+# Our single client-side mixin, injected into AE2's EMI recipe handler.
+[[mixins]]
+config="${mod_id}.mixins.json"
+
+[[dependencies.${mod_id}]]
+    modId="neoforge"
+    type="required"
+    versionRange="${neo_version_range}"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"
+
+# We mixin into AE2's EMI integration: AE2 must be present and load first.
+[[dependencies.${mod_id}]]
+    modId="ae2"
+    type="required"
+    versionRange="[17,18)"
+    ordering="AFTER"
+    side="CLIENT"
+
+# We augment EMI's recipe handler: EMI must be present and load first.
+[[dependencies.${mod_id}]]
+    modId="emi"
+    type="required"
+    versionRange="*"
+    ordering="AFTER"
+    side="CLIENT"

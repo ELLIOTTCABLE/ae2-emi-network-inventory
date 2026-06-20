@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "io.ell.ae2emibackport.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "AbstractRecipeHandlerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
