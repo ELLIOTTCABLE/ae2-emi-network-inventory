@@ -20,7 +20,9 @@ import org.slf4j.Logger;
 @Mod(Ae2EmiBackport.MODID)
 public final class Ae2EmiBackport {
    public static final String MODID = "ae2emibackport";
-   private static final Logger LOGGER = LogUtils.getLogger();
+   public static final Logger LOGGER = LogUtils.getLogger();
+   // DEBUG one-shot: lets the mixin log a single network-repo sample per launch, not every frame.
+   public static volatile boolean DEBUG_DUMPED = false;
 
    public Ae2EmiBackport(IEventBus modBus, ModContainer container) {
       if (FMLEnvironment.dist == Dist.CLIENT) {
