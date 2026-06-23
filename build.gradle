@@ -171,3 +171,12 @@ idea {
         downloadJavadoc = true
     }
 }
+
+// Stable-named copy of the mod jar so a dev symlink survives version bumps;
+// the versioned build/libs jar is still produced for distribution.
+tasks.register('devJar', Copy) {
+    from tasks.jar
+    into layout.buildDirectory.dir('devlibs')
+    rename { "${mod_id}-dev.jar" }
+}
+tasks.named('build') { dependsOn 'devJar' }
