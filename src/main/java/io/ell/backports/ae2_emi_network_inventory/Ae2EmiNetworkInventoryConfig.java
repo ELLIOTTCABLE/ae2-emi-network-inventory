@@ -1,4 +1,4 @@
-package io.ell.ae2emibackport;
+package io.ell.backports.ae2_emi_network_inventory;
 
 import net.neoforged.neoforge.common.ModConfigSpec;
 
@@ -6,7 +6,7 @@ import net.neoforged.neoforge.common.ModConfigSpec;
  * Client config gating the network-inventory mixin. Mirrors AE2's upstream
  * {@code provideNetworkInventoryToEmi} option (PR #8215), but defaults on.
  */
-public final class Ae2EmiBackportConfig {
+public final class Ae2EmiNetworkInventoryConfig {
    public static final ModConfigSpec SPEC;
    private static final ModConfigSpec.BooleanValue EXPOSE_NETWORK_INVENTORY_TO_EMI;
    private static final ModConfigSpec.BooleanValue DEBUG_LOGGING;
@@ -28,7 +28,7 @@ public final class Ae2EmiBackportConfig {
       SPEC = builder.build();
    }
 
-   private Ae2EmiBackportConfig() {
+   private Ae2EmiNetworkInventoryConfig() {
    }
 
    public static boolean exposeNetworkInventoryToEmi() {

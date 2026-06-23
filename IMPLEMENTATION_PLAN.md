@@ -2,18 +2,18 @@
 
 **Audience:** a fresh implementation context ("conductor") that will write + test the mod. This document is self-contained; you should not need the originating chat. Read it top to bottom once before touching code.
 
-**Status when handed off:** NeoForge 1.20.4 MDK scaffold is laid down in this folder (`git`-stripped), `gradle.properties` identity is set, example sources removed, a barebones `@Mod` stub exists at `src/main/java/io/ell/ae2emibackport/Ae2EmiBackport.java`. Nothing else is implemented. No Gradle build has been run yet.
+**Status when handed off:** NeoForge 1.20.4 MDK scaffold is laid down in this folder (`git`-stripped), `gradle.properties` identity is set, example sources removed, a barebones `@Mod` stub exists at `src/main/java/io/ell/ae2_emi_network_inventory/Ae2EmiNetworkInventory.java`. Nothing else is implemented. No Gradle build has been run yet.
 
-**Implementation status (2026-06-19, build session):** Implemented and building green — `./gradlew build` → `build/libs/ae2emibackport-0.1.0.jar`. Every §5 API assumption was verified against the `neoforge/v17.13.0-beta` (AE2) and `1.1.22+1.20.4` (EMI) source tags, not memory.
+**Implementation status (2026-06-19, build session):** Implemented and building green — `./gradlew build` → `build/libs/ae2_emi_network_inventory-0.1.0.jar`. Every §5 API assumption was verified against the `neoforge/v17.13.0-beta` (AE2) and `1.1.22+1.20.4` (EMI) source tags, not memory.
 - **Q1 resolved (covered for free):** AE2WTLib's `AE2wtlibEmiPlugin@17.12` imports and instantiates AE2's own `EmiUseCraftingRecipeHandler`/`EmiEncodePatternHandler` for `WCTMenu`/`WETMenu`; both extend `AbstractRecipeHandler` and both menus reach `MEStorageMenu`. The single base-class mixin covers AE2's 3 terminal handlers + AE2WTLib's 2 — no second handler. Neither concrete subclass overrides `getInventory`.
 - **Q3 resolved (no refmap):** NeoForge 20.4 is Mojmap end-to-end; ae2wtlib ships mixins with no refmap field and no AP wiring. Our mixin only *adds* a method, so refmap is omitted.
 - **Refinements vs. the §6 sketch:** (a) read `getCraftingSlots()` inside the override rather than mutating AE2's `getInputSources` (smaller surface, no EMI fill-button side-effect); (b) null-guard the `@Nullable` `EmiStackHelper.toEmiStack` (EMI's `EmiPlayerInventory` ctor NPEs on a null element — the #8294 crash class); (c) call `getInputSources`/`getCraftingSlots` via the `StandardRecipeHandler` interface, *not* `@Shadow`, because shadowing with the narrowed `T extends AEBaseMenu` makes javac emit synthetic bridge methods that collide with the target's own at mixin-apply (verified absent via `javap`). `EmiStackHelper` is `public` at this tag (the §5 "package-private" note is wrong), but the mixin still lives in `appeng.integration.modules.emi` to target the package-private `AbstractRecipeHandler`.
 - **Still unverified — needs a live client (Q2):** that EMI actually invokes the override in-game, plus the §9 acceptance test. The override *binding* is proven at the bytecode level (`getInventory` erased descriptor matches EMI's default); what remains is runtime behaviour.
 
 **v1.0.0 (2026-06-23) — shipped + tagged.** Network-inventory exposure works in-game (Q2 resolved: verified at an ME crafting terminal; stored items resolve EMI tree / synthetic-favourite completeness). Corrections to the 2026-06-19 notes above:
-- The mixin lives at `io.ell.ae2emibackport.mixin.AbstractRecipeHandlerMixin`, **not** `appeng.integration.modules.emi`. A class in AE2's package caused a JPMS split-package `ResolutionException` at boot (NeoForge gives each mod its own module). It targets AE2's package-private base by string: `@Mixin(targets = "appeng.integration.modules.emi.AbstractRecipeHandler")`.
+- The mixin lives at `io.ell.backports.ae2_emi_network_inventory.mixin.AbstractRecipeHandlerMixin`, **not** `appeng.integration.modules.emi`. A class in AE2's package caused a JPMS split-package `ResolutionException` at boot (NeoForge gives each mod its own module). It targets AE2's package-private base by string: `@Mixin(targets = "appeng.integration.modules.emi.AbstractRecipeHandler")`.
 - The actual bug that hid network items: AE2 17.13.0's `EmiStackHelper.toEmiStack` only converts `AEFluidKey` (both registered converters' forward path is fluid-only) → returns null for every item. We now convert `AEItemKey`/`AEFluidKey` → `EmiStack` inline. (Latent AE2 bug; nothing in stock AE2 ever calls `toEmiStack` for items.)
-- Base package/group is `io.ell.ae2emibackport`; a `debugLogging` client config (default off) gates a one-shot repo summary.
+- Base package/group is `io.ell.backports.ae2_emi_network_inventory`; a `debugLogging` client config (default off) gates a one-shot repo summary.
 
 ---
 
@@ -37,7 +37,7 @@ Concretely: replicate the behaviour of upstream AE2's client config option **`pr
 
 Prism instance path (Windows):
 `C:\Users\ec\AppData\Roaming\PrismLauncher\instances\FTB NeoTech\.minecraft`
-— mods in `…\.minecraft\mods`, AE2 config will appear at `…\.minecraft\config\ae2*.json` / our config at `…\.minecraft\config\ae2emibackport-client.toml`.
+— mods in `…\.minecraft\mods`, AE2 config will appear at `…\.minecraft\config\ae2*.json` / our config at `…\.minecraft\config\ae2_emi_network_inventory-client.toml`.
 
 > The user's installed AE2 jar is right there in that `mods/` folder; it's the most reliable compile dependency (see §7, flatDir option).
 
@@ -151,7 +151,7 @@ import dev.emi.emi.api.stack.EmiStack;
 import appeng.api.stacks.GenericStack;
 import appeng.menu.AEBaseMenu;
 import appeng.menu.me.common.MEStorageMenu;
-import io.ell.ae2emibackport.Ae2EmiBackportConfig;
+import io.ell.backports.ae2_emi_network_inventory.Ae2EmiNetworkInventoryConfig;
 
 @Mixin(AbstractRecipeHandler.class)            // package-private class is visible: same package
 public abstract class AbstractRecipeHandlerMixin implements StandardRecipeHandler<AEBaseMenu> {
@@ -160,7 +160,7 @@ public abstract class AbstractRecipeHandlerMixin implements StandardRecipeHandle
 
     @Override
     public EmiPlayerInventory getInventory(AbstractContainerScreen<AEBaseMenu> screen) {
-        if (!Ae2EmiBackportConfig.exposeNetworkInventoryToEmi()) {
+        if (!Ae2EmiNetworkInventoryConfig.exposeNetworkInventoryToEmi()) {
             return StandardRecipeHandler.super.getInventory(screen);
         }
         var list = new ArrayList<EmiStack>();
@@ -216,17 +216,17 @@ Mixin is bundled with NeoForge; no extra dependency. Ensure the Mixin annotation
 1. Uncomment + set the mixin block:
    ```toml
    [[mixins]]
-   config="ae2emibackport.mixins.json"
+   config="ae2_emi_network_inventory.mixins.json"
    ```
 2. Add dependencies on AE2 (required) and EMI (required); set the mod client-only-friendly:
    ```toml
-   [[dependencies.ae2emibackport]]
+   [[dependencies.ae2_emi_network_inventory]]
        modId="ae2"            # AE2's modid
        type="required"
        versionRange="[17,18)"
        ordering="AFTER"
        side="CLIENT"
-   [[dependencies.ae2emibackport]]
+   [[dependencies.ae2_emi_network_inventory]]
        modId="emi"
        type="required"
        versionRange="*"
@@ -235,7 +235,7 @@ Mixin is bundled with NeoForge; no extra dependency. Ensure the Mixin annotation
    ```
    Consider `displayTest="IGNORE_ALL_VERSION"` so a server without it doesn't red-X clients (this is a client-only mod).
 
-**`src/main/resources/ae2emibackport.mixins.json`** (new):
+**`src/main/resources/ae2_emi_network_inventory.mixins.json`** (new):
 ```json
 {
   "required": true,
@@ -244,21 +244,21 @@ Mixin is bundled with NeoForge; no extra dependency. Ensure the Mixin annotation
   "compatibilityLevel": "JAVA_17",
   "client": ["AbstractRecipeHandlerMixin"],
   "injectors": { "defaultRequire": 1 },
-  "refmap": "ae2emibackport.refmap.json"
+  "refmap": "ae2_emi_network_inventory.refmap.json"
 }
 ```
 (`client` not `mixins`, since this is client-only.)
 
 ## 8. Config (the perf escape hatch)
 
-Replicate AE2's `provideNetworkInventoryToEmi` as our own NeoForge **client** config so the behaviour is toggleable (the feature walks the whole network inventory; #8215 itself warns "might cause performance problems"). Create `Ae2EmiBackportConfig` (client `ModConfigSpec`, registered from the `@Mod` ctor) exposing a static `boolean exposeNetworkInventoryToEmi()`.
+Replicate AE2's `provideNetworkInventoryToEmi` as our own NeoForge **client** config so the behaviour is toggleable (the feature walks the whole network inventory; #8215 itself warns "might cause performance problems"). Create `Ae2EmiNetworkInventoryConfig` (client `ModConfigSpec`, registered from the `@Mod` ctor) exposing a static `boolean exposeNetworkInventoryToEmi()`.
 
 **Default: `true`** — the user explicitly wants this on (this differs from upstream's default-off). Keep the off switch for big-network perf. If hitching appears on large networks, see the talchas reference for an off-thread construction pattern (§10, Q4).
 
 ## 9. Build / install / test
 
 0. **Toolchain:** JDK 17 is pinned in the project-local `mise.toml`; run `mise trust && mise install` once. Gradle comes from the `./gradlew` wrapper, and all mod deps (NeoForge, AE2, EMI) are resolved by Gradle — nothing else needs installing (no winget/system-global).
-1. `./gradlew build` → jar in `build/libs/ae2emibackport-0.1.0.jar`. First run downloads the NeoForge userdev + deps (slow once).
+1. `./gradlew build` → jar in `build/libs/ae2_emi_network_inventory-0.1.0.jar`. First run downloads the NeoForge userdev + deps (slow once).
 2. Install: drop the jar into the Prism instance `…\FTB NeoTech\.minecraft\mods\`. AE2 + EMI are already there.
    - **Blocker:** that instance currently crashes on launch for an unrelated reason (a bad `fusion` mod update). Verified-good replacement jars are staged at `%TEMP%\ftb-neotech-revert\` (`fusion-1.2.12`, `stevescarts-1.20.4-1.2.16`); the pack must boot before you can test. Confirm with the user before changing their instance.
 3. In-game verification (the actual acceptance test):
@@ -271,7 +271,7 @@ Replicate AE2's `provideNetworkInventoryToEmi` as our own NeoForge **client** co
 
 - **Q1 (most important): AE2WTLib wireless terminals.** The pack uses ae2wtlib heavily (tech pack). The mixin covers handlers that extend AE2's `AbstractRecipeHandler`. Determine whether ae2wtlib's wireless crafting/pattern terminals (a) reuse AE2's own menu+EMI handler (then they're covered for free) or (b) register their own EMI handler not extending `AbstractRecipeHandler` (then they need a second mixin/handler — note the standalone mod needed a separate `Ae2WtEmiPlugin`). Clone `https://github.com/62832/AE2WTLib` (or the matching repo) into `~/Sync/Code/Source/` and check whether its wireless terminal menu extends `MEStorageMenu` and how/if it integrates EMI on 17.x.
 - **Q2: interface-default override via mixin.** Confirm the added `getInventory` actually overrides EMI's default at runtime (set a breakpoint/log; verify EMI calls it). Get the erased signature exactly right.
-- **Q3: refmap / mappings.** NeoForge 1.20.4 runs Mojmap; the mixin touches AE2/EMI types (deobf) and only `AbstractContainerScreen`/`Slot`/`ItemStack` from vanilla. Risk is low (no vanilla-method @Inject), but verify the build emits a valid `ae2emibackport.refmap.json` and the mixin applies. (Context: the originating session debugged a *different* mod whose 1.21-era SRG refmap failed to bind on this exact Mojmap runtime — so explicitly confirm ours binds.)
+- **Q3: refmap / mappings.** NeoForge 1.20.4 runs Mojmap; the mixin touches AE2/EMI types (deobf) and only `AbstractContainerScreen`/`Slot`/`ItemStack` from vanilla. Risk is low (no vanilla-method @Inject), but verify the build emits a valid `ae2_emi_network_inventory.refmap.json` and the mixin applies. (Context: the originating session debugged a *different* mod whose 1.21-era SRG refmap failed to bind on this exact Mojmap runtime — so explicitly confirm ours binds.)
 - **Q4: performance.** Large networks = large `getAllEntries()`. Upstream is synchronous and warns about it; the talchas reference builds the inventory **off-thread** with a `Future` + player-inventory fallback (see references). Ship synchronous first; adopt off-thread only if hitching is observed.
 - **Q5: EMI refresh cadence.** EMI refreshes craftables when the inventory changes; AE2's client repo updates as the network changes, so it should propagate. If the tree goes stale, investigate nudging EMI on repo update. (Community report in emi#696: works well in practice.)
 

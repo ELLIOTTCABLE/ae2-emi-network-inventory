@@ -1,4 +1,4 @@
-# ae2-emi-crafting-backport
+# AE2: EMI network-inventory & synthetic-fav backport
 
 AI-generated slop; if you hate that, don't use it; I wouldn't.
 

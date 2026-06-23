@@ -16,7 +16,7 @@ repositories {
 }
 
 base {
-    archivesName = mod_id
+    archivesName = mod_id.replace('_', '-')
 }
 
 // Mojang ships Java 17 to end users in 1.18+, so your mod should target Java 17.
@@ -177,6 +177,6 @@ idea {
 tasks.register('devJar', Copy) {
     from tasks.jar
     into layout.buildDirectory.dir('devlibs')
-    rename { "${mod_id}-dev.jar" }
+    rename { "${mod_id.replace('_', '-')}-dev.jar" }
 }
 tasks.named('build') { dependsOn 'devJar' }

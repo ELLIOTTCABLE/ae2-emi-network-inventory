@@ -6,7 +6,7 @@
  * appeng/integration/modules/emi/AbstractRecipeHandler.java (commit 38c8ff34b, PR #8215),
  * which is LGPL-3.0-only. This derivative is therefore also LGPL-3.0-only.
  */
-package io.ell.ae2emibackport.mixin;
+package io.ell.backports.ae2_emi_network_inventory.mixin;
 
 import java.util.ArrayList;
 
@@ -24,8 +24,8 @@ import appeng.api.stacks.AEItemKey;
 import appeng.menu.AEBaseMenu;
 import appeng.menu.me.common.MEStorageMenu;
 
-import io.ell.ae2emibackport.Ae2EmiBackport;
-import io.ell.ae2emibackport.Ae2EmiBackportConfig;
+import io.ell.backports.ae2_emi_network_inventory.Ae2EmiNetworkInventory;
+import io.ell.backports.ae2_emi_network_inventory.Ae2EmiNetworkInventoryConfig;
 
 /**
  * Adds a {@code getInventory} override to AE2's EMI recipe handler so items stored in the ME
@@ -54,7 +54,7 @@ public abstract class AbstractRecipeHandlerMixin<T extends AEBaseMenu> implement
    public EmiPlayerInventory getInventory(AbstractContainerScreen<T> screen) {
       var menu = screen.getMenu();
 
-      if (!Ae2EmiBackportConfig.exposeNetworkInventoryToEmi()) {
+      if (!Ae2EmiNetworkInventoryConfig.exposeNetworkInventoryToEmi()) {
          return StandardRecipeHandler.super.getInventory(screen);
       }
 
@@ -73,7 +73,7 @@ public abstract class AbstractRecipeHandlerMixin<T extends AEBaseMenu> implement
          var repo = meMenu.getClientRepo();
          if (repo != null) {
             var entries = repo.getAllEntries();
-            boolean logOnce = Ae2EmiBackportConfig.debugLogging() && !Ae2EmiBackport.DEBUG_DUMPED && !entries.isEmpty();
+            boolean logOnce = Ae2EmiNetworkInventoryConfig.debugLogging() && !Ae2EmiNetworkInventory.DEBUG_DUMPED && !entries.isEmpty();
             int skippedZero = 0;
             int unconvertible = 0;
             int networkAdded = 0;
@@ -97,8 +97,8 @@ public abstract class AbstractRecipeHandlerMixin<T extends AEBaseMenu> implement
                networkAdded++;
             }
             if (logOnce) {
-               Ae2EmiBackport.DEBUG_DUMPED = true;
-               Ae2EmiBackport.LOGGER.info("[ae2emibackport] repo: entries={} skippedZero={} unconvertible={} networkAdded={}",
+               Ae2EmiNetworkInventory.DEBUG_DUMPED = true;
+               Ae2EmiNetworkInventory.LOGGER.info("[ae2_emi_network_inventory] repo: entries={} skippedZero={} unconvertible={} networkAdded={}",
                      entries.size(), skippedZero, unconvertible, networkAdded);
             }
          }
