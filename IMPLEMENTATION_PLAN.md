@@ -10,6 +10,76 @@
 - **Refinements vs. the §6 sketch:** (a) read `getCraftingSlots()` inside the override rather than mutating AE2's `getInputSources` (smaller surface, no EMI fill-button side-effect); (b) null-guard the `@Nullable` `EmiStackHelper.toEmiStack` (EMI's `EmiPlayerInventory` ctor NPEs on a null element — the #8294 crash class); (c) call `getInputSources`/`getCraftingSlots` via the `StandardRecipeHandler` interface, *not* `@Shadow`, because shadowing with the narrowed `T extends AEBaseMenu` makes javac emit synthetic bridge methods that collide with the target's own at mixin-apply (verified absent via `javap`). `EmiStackHelper` is `public` at this tag (the §5 "package-private" note is wrong), but the mixin still lives in `appeng.integration.modules.emi` to target the package-private `AbstractRecipeHandler`.
 - **Still unverified — needs a live client (Q2):** that EMI actually invokes the override in-game, plus the §9 acceptance test. The override *binding* is proven at the bytecode level (`getInventory` erased descriptor matches EMI's default); what remains is runtime behaviour.
 
+**v1.0.0 (2026-06-23) — shipped + tagged.** Network-inventory exposure works in-game (Q2 resolved: verified at an ME crafting terminal; stored items resolve EMI tree / synthetic-favourite completeness). Corrections to the 2026-06-19 notes above:
+- The mixin lives at `io.ell.ae2emibackport.mixin.AbstractRecipeHandlerMixin`, **not** `appeng.integration.modules.emi`. A class in AE2's package caused a JPMS split-package `ResolutionException` at boot (NeoForge gives each mod its own module). It targets AE2's package-private base by string: `@Mixin(targets = "appeng.integration.modules.emi.AbstractRecipeHandler")`.
+- The actual bug that hid network items: AE2 17.13.0's `EmiStackHelper.toEmiStack` only converts `AEFluidKey` (both registered converters' forward path is fluid-only) → returns null for every item. We now convert `AEItemKey`/`AEFluidKey` → `EmiStack` inline. (Latent AE2 bug; nothing in stock AE2 ever calls `toEmiStack` for items.)
+- Base package/group is `io.ell.ae2emibackport`; a `debugLogging` client config (default off) gates a one-shot repo summary.
+
+---
+
+# ▲ NEXT FEATURE (researched, NOT implemented) — EMI synthetic-favourite *crafting execution* at AE2 terminals
+
+**Research complete 2026-06-23; zero implementation.** Self-contained handoff for a fresh context — read before touching code. v1.0.0 only *exposes* the network to EMI (tree completeness); it does **not** execute crafts. This section is about making EMI's craft hotkeys actually craft at AE2 terminals.
+
+## Direction (decided with EC)
+Lean **hard toward matching EMI's behaviour, not AE2's**. Reuse AE2 behaviour *only where it correctly matches the EMI tree's assumptions and what the player resolved*. **Default to safe** — defer / disable / deny / noop whenever not totally sure; everything unhandled falls through to AE2's existing fill-only behaviour (or a deferral), never a wrong guess. **Roll out progressively** — one well-understood case at a time, tested in-game, then expand.
+
+**Identity pivot (parked as "later"):** this turns the mod from a faithful AE2 backport into an "EMI-parity layer that overrides AE2 where they diverge." Accepted downstream implications: possible rename; supporting other AE2/MC versions (overriding upstream on other modpacks); deliberately overriding AE2's stated design intent (yueh, below).
+
+## What EMI does (the behaviour to match) — vs emi 1.1.22+1.20.4 / 1.21 source
+- Player picks a target recipe → EMI builds a Bill-of-Materials tree → sidebar **synthetic favourites** are the sub-craftables, each with a coloured count = remaining-to-craft, computed dynamically from the *currently-viewed* inventory. **This is exactly what v1.0.0's `getInventory` feeds** (switching player-inv ↔ terminal changes the counts). Colour = completability (green = all ingredients present *and* craftable in the current interface).
+- **Abstract ingredients (tags) are resolved by the player** — they click through subtrees and actively pick a concrete item. EMI has first-class resolution machinery: `bom/` package (`MaterialTree`, `MaterialNode`, `BoM`) + `screen/widget/ResolutionButtonWidget`. An unresolved tag node is *not* directly craftable; EMI makes you resolve it first.
+- Craft hotkeys call `handler.craft(EmiRecipe, EmiCraftContext)`. `EmiCraftContext` carries `amount` (the exact N) + `Destination` (NONE = fill only / CURSOR / INVENTORY). API contract (Destination javadoc): a handler that can't craft "should do nothing more than FILL" — AE2 takes that fallback today. [`api/recipe/handler/EmiCraftContext.java`, `StandardRecipeHandler.java`]
+- **Vanilla exact-N mechanism** (`registry/EmiRecipeFiller.java`): `getStacks(...)` caps the fill at exactly `amount` batches (~line 215); `clientFill(...)` clears the grid, places exactly N-per-slot via vanilla `clickSlot(PICKUP)` from *real* input slots, then `clickSlot(output, QUICK_MOVE)` (INVENTORY) / `PICKUP` (CURSOR) → a **grid-bounded** craft = exactly N.
+- **Why EMI's mechanism can't be reused for AE2:** it pulls ingredients from *real slots*; AE2's ingredients are virtual (network repo). That's precisely why AE2 bypasses `clientFill` with its own server packet.
+- **Resolver API to defer to** (public, `api/EmiApi.java`): `displayRecipes(EmiIngredient)` (line ~131), `viewRecipeTree()` (~162), `displayRecipe(EmiRecipe)`, `focusRecipe(EmiRecipe)`.
+
+## What AE2 does — vs `neoforge/v17.13.0-beta` (the installed frozen version)
+- AE2 overrides `craft()` → `transferRecipe(…, doTransfer=true)` → `CraftingHelper.performTransfer(menu, recipeId, recipe, craftMissing)` → `FillCraftingGridFromRecipePacket(recipeId, templateItems[9], craftMissing)`. **No count field — one set only, and it does not execute.**
+- The fill is **multi-source**: server sources network first, then falls back to the **player inventory** ("If still nothing, try taking it from the player inventory", `FillCraftingGridFromRecipePacket.handleOnServer` ~line 197; overflow → player inv ~line 172). Confirmed in-game by EC (0 in network + 6 in inv → '+' pulled 2 from inventory). `findMissingIngredients` likewise checks player inv first (with reservation) then the network repo (`CraftingTermMenu` ~204-262).
+- **Craft actions** (`menu/slot/CraftingTermSlot.doClick`): `CRAFT_ITEM` (one → cursor), `CRAFT_STACK` (a stack → cursor), `CRAFT_SHIFT` (a stack → player inventory). `maxTimesToCraft = floor(maxStackSize / outputCount)` — bounded by a **stack**, never an arbitrary N; the count comes from `maxStackSize`, **not** the packet.
+- `InventoryActionPacket(action, slot, extraId, slotItem)` — **no usable count channel** for crafts. Client sends them via `appeng/client/gui/AEBaseScreen.java` (~652). To trigger a craft ourselves: `NetworkHandler.instance().sendToServer(new InventoryActionPacket(InventoryAction.CRAFT_ITEM, outputSlot.index, 0))`.
+- The craft (`CraftingTermSlot.craftItem`): builds the recipe from the grid as a **template** (`getPattern()`), extracts ingredients via `Platform.extractItemsByRecipe(…, storage = MEStorage, …)` — i.e. from the **network**. Multi-craft restock (the `CRAFT_SHIFT` loop) also reads network `storage`. **OPEN NUANCE:** the first craft consumes the filled grid (which may hold player-inv-sourced items from the fill fallback), but the restock path reads network storage — so multi-craft with player-inv ingredients may diverge from EMI's model. Verify in-game.
+- Cursor → network deposit exists: `InventoryAction.PICKUP_OR_SET_DOWN` (`MEStorageMenu` ~line 495) — for routing output to the network. `useRealItems()` = true (grid holds real items).
+
+## yueh's hazard (AE2 #4238)
+Maintainer yueh rejected JEI/EMI craft hotkeys as clashing with AE2's design ("making manual crafting a bit more tedious to encourage using patterns") and warned that JEI/EMI *display* stacks can carry fake/missing NBT vs real items → mass-crafting from a display can grab the wrong variant. Mitigated for us (AE2's fill resolves to real network items), but it's the reason to default-safe on ambiguous tag/NBT cases.
+
+## Feasibility (EC's three questions, answered)
+1. **At all?** Yes. AE2 crafts from the network using the grid as a persistent template, so exact-N is reachable by issuing **N discrete `CRAFT_ITEM` actions**. A clean *single-action* exact-N is impossible via AE2's protocol (no count-aware craft) — only via repetition or a server component.
+2. **Entirely client-side?** Yes for N× `CRAFT_ITEM` (+ a deposit for INVENTORY). No for a clean single-action (needs a server-side count-aware craft).
+3. **Without invasive patching that breaks other mods?** Yes — uses AE2's existing public packets; our only change is a cancellable `@Inject` on `AbstractRecipeHandler.craft` in our own mixin, gated by config. EMI untouched; AE2's normal flow intact.
+
+## Approach
+**Intercept** `AbstractRecipeHandler.craft(recipe, context)` (cancellable `@Inject` at HEAD, config-gated). **Classify**, then **default to safe** (fall through to AE2's fill-only, or open EMI's resolver). Progressively widen the "known-safe-to-execute" set.
+
+**Two execution modes:**
+- **Client-only** (server lacks the mod): issue N× `InventoryActionPacket(CRAFT_ITEM, outputSlot.index, 0)` (each crafts one → cursor; grid template persists, extraction from network), then route the cursor stack (player inv, or network via `PICKUP_OR_SET_DOWN`). Cap each invocation at ~one output-stack (EC accepts re-clicking for bulk). Jank: cursor transit, N packets, the multi-craft sourcing nuance above. **Must verify in-game:** server packet ordering (fill before crafts) and cursor accumulation across packets.
+- **Optional server component** (mod on both sides; detect via NeoForge channel/payload presence): a custom `CraftAmount(n, destination)` packet; server loops `craftItem` bounded to N and inserts output directly (no cursor, any N, clean source-aware routing). Needs a small *additive* server-side mixin to reach `CraftingTermSlot`'s private craft, gated on our packet (doesn't change AE2's normal behaviour). This is the clean path; client-only is the fallback.
+
+**Smart output routing (EC refinement):** route results to where ingredients came from — network → network; player-inv → player inv; mixed → safe default (player inv, or defer). This is the EMI-faithful reading of "craft to inventory" (= to where it belongs), not a departure. Per-craft source-detection is hard client-side (AE2 doesn't expose it); the server component makes it clean.
+
+**Abstract/tag deferral (EC's defensive default):** if the target/ingredient is an unresolved tag, do **not** guess — call `EmiApi.displayRecipes(...)` / `viewRecipeTree()` to pop EMI's resolver. Largely aligns with EMI (it already requires resolution). Deeper case: tag *ingredients* in a concrete recipe — AE2's fill picks "most-held", which can differ from the player's tree resolution; to honour the player's choice, fill from the recipe's resolved `EmiIngredient`s rather than AE2's guess (a bigger lever: overrides AE2's fill, not just its craft).
+
+## Progressive rollout (each config-gated, each defaulting to safe; test before next)
+0. **[shipped v1.0.0]** Network-inventory exposure → tree completeness.
+1. **Abstract/ambiguous deferral** → open EMI resolver instead of crafting. Pure safety, no craft executed.
+2. **Exact-N execute, CLEAN case only:** concrete recipe + fully-resolved concrete ingredients + single source available + N ≤ one output-stack; everything else → defer/noop. (Client-only N× `CRAFT_ITEM`.) The core micro-crafting win.
+3. **Smart source-aware output routing.**
+4. **Hard cases:** multi-source / player-inv-sourced crafts, large-N (cap, or server component), tag-ingredient honouring the player's resolution, NBT edges. Last; each only when proven. The optional server component slots in here for the clean large-N / routing path.
+
+## Code map
+- **Ours:** `src/main/java/io/ell/ae2emibackport/mixin/AbstractRecipeHandlerMixin.java` (currently overrides `getInventory`; add the cancellable `craft()` interception here). Config: `Ae2EmiBackportConfig.java`.
+- **AE2** (`~/Sync/Code/Source/Applied-Energistics-2`, tag `neoforge/v17.13.0-beta`): `appeng/menu/slot/CraftingTermSlot.java` (`doClick`, `craftItem`), `appeng/menu/me/items/CraftingTermMenu.java` (`findMissingIngredients`, slot wiring, `useRealItems`), `appeng/core/network/serverbound/{InventoryActionPacket,FillCraftingGridFromRecipePacket}.java`, `appeng/integration/modules/itemlists/CraftingHelper.java`, `appeng/util/Platform.java` (`extractItemsByRecipe`), `appeng/menu/me/common/MEStorageMenu.java` (`PICKUP_OR_SET_DOWN`), `appeng/client/gui/AEBaseScreen.java` (~652).
+- **EMI** (`~/Sync/Code/Source/emi`; use tag `1.1.22+1.20.4` for the installed version): `dev/emi/emi/api/recipe/handler/{StandardRecipeHandler,EmiCraftContext}.java`, `dev/emi/emi/registry/EmiRecipeFiller.java`, `dev/emi/emi/api/EmiApi.java`, `dev/emi/emi/bom/*`, `dev/emi/emi/screen/widget/ResolutionButtonWidget.java`.
+- **Reference only** (wrong MC/AE2, identical fill-only behaviour — do NOT copy): `~/Sync/Code/Source/ae2-emi-crafting-forge` (talchas).
+
+## Verify in-game before trusting
+- Multi-craft ingredient sourcing (does the restock pull from player inv too, or network-only? affects exact-N with player-inv ingredients).
+- N× `CRAFT_ITEM` accumulates correctly on the cursor across packets (server cursor state, same tick).
+- Server-side packet ordering (fill processed before the craft actions).
+- Whether abstract targets even reach `craft()` (EMI may filter them via resolution) — tells us how much deferral logic we actually need.
+
 ---
 
 ## 1. Goal (one sentence)
