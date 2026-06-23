@@ -1,0 +1,67 @@
+# Publishes to Modrinth when a GitHub Release is published.
+# Requires a "Deploy" environment with a MODRINTH_TOKEN secret (a Modrinth PAT with
+# the "Create versions" scope). Mark a Release as "pre-release" for the beta channel.
+name: Publish to Modrinth
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to Modrinth
+    runs-on: ubuntu-latest
+    # GitHub deployment environment that holds MODRINTH_TOKEN — note this is the
+    # *job* environment, distinct from the Modrinth `environment:` compat field below.
+    environment:
+      name: Deploy
+      url: https://modrinth.com/project/ae2-emi-network-inventory
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: gradle
+
+      # Build the jar with the release tag's version (minus any leading "v"), so the
+      # jar, its bundled mods.toml, and the Modrinth listing all report the same number.
+      - name: Resolve version from tag
+        id: version
+        run: echo "value=${TAG#v}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+
+      - name: Build
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          ./gradlew build -Pmod_version="$VERSION"
+
+      - name: Publish to Modrinth
+        uses: cloudnode-pro/modrinth-publish@v2
+        with:
+          token: ${{ secrets.MODRINTH_TOKEN }}
+          # TODO: paste the Modrinth project ID here once the project is created.
+          project: FzaSYLUO
+          version: ${{ steps.version.outputs.value }}
+          name: ${{ github.event.release.name }}
+          changelog: ${{ github.event.release.body }}
+          loaders: neoforge
+          game-versions: '1.20.4'
+          files: build/libs/ae2-emi-network-inventory-${{ steps.version.outputs.value }}.jar
+          # release vs beta is driven by the GitHub Release's "pre-release" checkbox.
+          channel: ${{ github.event.release.prerelease && 'beta' || 'release' }}
+          # Purely client-side EMI integration (the mixin is client-only); a server install does nothing.
+          environment: client_only
+          # Required deps: AE2 (XxWD5pD3) + EMI (fRiHVvU7).
+          dependencies: |
+            [
+              {"project_id": "XxWD5pD3", "dependency_type": "required"},
+              {"project_id": "fRiHVvU7", "dependency_type": "required"}
+            ]
